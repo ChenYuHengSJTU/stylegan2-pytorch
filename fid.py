@@ -22,7 +22,7 @@ def extract_feature_from_samples(
 
     for batch in tqdm(batch_sizes):
         latent = torch.randn(batch, 512, device=device)
-        img, _ = g([latent], truncation=truncation, truncation_latent=truncation_latent)
+        img, _ = generator([latent], truncation=truncation, truncation_latent=truncation_latent)
         feat = inception(img)[0].view(img.shape[0], -1)
         features.append(feat.to("cpu"))
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_sample",
         type=int,
-        default=50000,
+        default=70000,
         help="number of the samples for calculating FID",
     )
     parser.add_argument(

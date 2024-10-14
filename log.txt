@@ -1,0 +1,138 @@
+WARNING:__main__:
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py:1965: UserWarning: TORCH_CUDA_ARCH_LIST is not set, all archs for visible cards are included for compilation. 
+If this is not desired, please set os.environ['TORCH_CUDA_ARCH_LIST'].
+  warnings.warn(
+Traceback (most recent call last):
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py", line 2105, in _run_ninja_build
+    subprocess.run(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/subprocess.py", line 516, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['ninja', '-v']' returned non-zero exit status 1.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "train.py", line 30, in <module>
+    from op import conv2d_gradfix
+  File "/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/__init__.py", line 1, in <module>
+    from .fused_act import FusedLeakyReLU, fused_leaky_relu
+  File "/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_act.py", line 11, in <module>
+    fused = load(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py", line 1312, in load
+    return _jit_compile(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py", line 1722, in _jit_compile
+    _write_ninja_file_and_build_library(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py", line 1834, in _write_ninja_file_and_build_library
+    _run_ninja_build(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/utils/cpp_extension.py", line 2121, in _run_ninja_build
+    raise RuntimeError(message) from e
+RuntimeError: Error building extension 'fused': [1/3] /usr/local/cuda-11.8/bin/nvcc --generate-dependencies-with-compile --dependency-output fused_bias_act_kernel.cuda.o.d -DTORCH_EXTENSION_NAME=fused -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/torch/csrc/api/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/TH -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/THC -isystem /usr/local/cuda-11.8/include -isystem /home/chenyuheng/miniforge3/envs/gan/include/python3.8 -D_GLIBCXX_USE_CXX11_ABI=0 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_89,code=sm_89 --compiler-options '-fPIC' -std=c++17 -c /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act_kernel.cu -o fused_bias_act_kernel.cuda.o 
+FAILED: fused_bias_act_kernel.cuda.o 
+/usr/local/cuda-11.8/bin/nvcc --generate-dependencies-with-compile --dependency-output fused_bias_act_kernel.cuda.o.d -DTORCH_EXTENSION_NAME=fused -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/torch/csrc/api/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/TH -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/THC -isystem /usr/local/cuda-11.8/include -isystem /home/chenyuheng/miniforge3/envs/gan/include/python3.8 -D_GLIBCXX_USE_CXX11_ABI=0 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_89,code=sm_89 --compiler-options '-fPIC' -std=c++17 -c /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act_kernel.cu -o fused_bias_act_kernel.cuda.o 
+nvcc fatal   : Failed to preprocess host compiler properties.
+[2/3] c++ -MMD -MF fused_bias_act.o.d -DTORCH_EXTENSION_NAME=fused -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/torch/csrc/api/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/TH -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/THC -isystem /usr/local/cuda-11.8/include -isystem /home/chenyuheng/miniforge3/envs/gan/include/python3.8 -D_GLIBCXX_USE_CXX11_ABI=0 -fPIC -std=c++17 -c /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp -o fused_bias_act.o 
+FAILED: fused_bias_act.o 
+c++ -MMD -MF fused_bias_act.o.d -DTORCH_EXTENSION_NAME=fused -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/torch/csrc/api/include -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/TH -isystem /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/THC -isystem /usr/local/cuda-11.8/include -isystem /home/chenyuheng/miniforge3/envs/gan/include/python3.8 -D_GLIBCXX_USE_CXX11_ABI=0 -fPIC -std=c++17 -c /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp -o fused_bias_act.o 
+In file included from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/c10/util/CallOnce.h:8:0,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/Context.h:22,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/ATen.h:7,
+                 from /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:2:
+/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/c10/util/C++17.h:13:2: error: #error "You're trying to build PyTorch with a too old version of GCC. We need GCC 9 or later."
+ #error \
+  ^~~~~
+In file included from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/c10/util/Exception.h:5:0,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/BlasBackend.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/Context.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/ATen.h:7,
+                 from /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:2:
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp: In function ‘at::Tensor fused_bias_act(const at::Tensor&, const at::Tensor&, const at::Tensor&, int, int, float, float)’:
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:11:22: warning: ‘at::DeprecatedTypeProperties& at::Tensor::type() const’ is deprecated: Tensor.type() is deprecated. Instead use Tensor.options(), which in many cases (e.g. in a constructor) is a drop-in replacement. If you were using data from type(), that is now available from Tensor itself, so instead of tensor.type().scalar_type(), use tensor.scalar_type() instead and instead of tensor.type().backend() use tensor.device(). [-Wdeprecated-declarations]
+   TORCH_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
+                      ^
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:15:3: note: in expansion of macro ‘CHECK_CUDA’
+   CHECK_CUDA(x);                                                               \
+   ^~~~~~~~~~
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:22:3: note: in expansion of macro ‘CHECK_INPUT’
+   CHECK_INPUT(input);
+   ^
+In file included from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/ivalue.h:4:0,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/List_inl.h:4,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/List.h:490,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/IListRef_inl.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/IListRef.h:631,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/DeviceGuard.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/ATen.h:9,
+                 from /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:2:
+/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/TensorBody.h:225:30: note: declared here
+   DeprecatedTypeProperties & type() const {
+                              ^~~~
+In file included from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/c10/util/Exception.h:5:0,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/BlasBackend.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/Context.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/ATen.h:7,
+                 from /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:2:
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:11:22: warning: ‘at::DeprecatedTypeProperties& at::Tensor::type() const’ is deprecated: Tensor.type() is deprecated. Instead use Tensor.options(), which in many cases (e.g. in a constructor) is a drop-in replacement. If you were using data from type(), that is now available from Tensor itself, so instead of tensor.type().scalar_type(), use tensor.scalar_type() instead and instead of tensor.type().backend() use tensor.device(). [-Wdeprecated-declarations]
+   TORCH_CHECK(x.type().is_cuda(), #x " must be a CUDA tensor")
+                      ^
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:15:3: note: in expansion of macro ‘CHECK_CUDA’
+   CHECK_CUDA(x);                                                               \
+   ^~~~~~~~~~
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:23:3: note: in expansion of macro ‘CHECK_INPUT’
+   CHECK_INPUT(bias);
+   ^
+In file included from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/ivalue.h:4:0,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/List_inl.h:4,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/List.h:490,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/IListRef_inl.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/IListRef.h:631,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/DeviceGuard.h:3,
+                 from /home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/ATen.h:9,
+                 from /mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:2:
+/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/include/ATen/core/TensorBody.h:225:30: note: declared here
+   DeprecatedTypeProperties & type() const {
+                              ^~~~
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp: At global scope:
+/mnt/nas2/home/chenyuheng/stylegan2-pytorch/op/fused_bias_act.cpp:32:1: fatal error: error closing /tmp/cc136Upi.s: No space left on device
+ }
+ ^
+compilation terminated.
+ninja: build stopped: subcommand failed.
+
+W0910 17:28:06.508843 140254160820032 torch/distributed/elastic/multiprocessing/api.py:858] Sending process 20291 closing signal SIGTERM
+E0910 17:28:06.573012 140254160820032 torch/distributed/elastic/multiprocessing/api.py:833] failed (exitcode: 1) local_rank: 0 (pid: 20290) of binary: /home/chenyuheng/miniforge3/envs/gan/bin/python
+Traceback (most recent call last):
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/run.py", line 905, in <module>
+    main()
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 348, in wrapper
+    return f(*args, **kwargs)
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/run.py", line 901, in main
+    run(args)
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/run.py", line 892, in run
+    elastic_launch(
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 133, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/home/chenyuheng/miniforge3/envs/gan/lib/python3.8/site-packages/torch/distributed/launcher/api.py", line 264, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2024-09-10_17:28:06
+  host      : think4proj-105-232.local
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 20290)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

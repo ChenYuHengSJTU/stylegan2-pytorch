@@ -13,6 +13,15 @@ import torch.distributed as dist
 from torchvision import transforms, utils
 from tqdm import tqdm
 
+from torch.distributed.fsdp import (
+   FullyShardedDataParallel,
+   CPUOffload,
+)
+
+from torch.distributed.fsdp.wrap import (
+   default_auto_wrap_policy,
+)
+
 root = '/home/chenyuheng/stylegan2-pytorch'
 
 try:
@@ -477,17 +486,6 @@ if __name__ == "__main__":
     g_reg_ratio = args.g_reg_every / (args.g_reg_every + 1)
     d_reg_ratio = args.d_reg_every / (args.d_reg_every + 1)
 
-    g_optim = optim.Adam(
-        generator.parameters(),
-        lr=args.lr * g_reg_ratio,
-        betas=(0 ** g_reg_ratio, 0.99 ** g_reg_ratio),
-    )
-    d_optim = optim.Adam(
-        discriminator.parameters(),
-        lr=args.lr * d_reg_ratio,
-        betas=(0 ** d_reg_ratio, 0.99 ** d_reg_ratio),
-    )
-
     if args.ckpt is not None:
         print("load model:", args.ckpt)
 
@@ -508,19 +506,34 @@ if __name__ == "__main__":
         d_optim.load_state_dict(ckpt["d_optim"])
 
     if args.distributed:
-        generator = nn.parallel.DistributedDataParallel(
+        generator = FullyShardedDataParallel(
             generator,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
+            # device_ids=[args.local_rank],
+            # output_device=args.local_rank,
+            # broadcast_buffers=False,
+            fsdp_auto_wrap_policy=default_auto_wrap_policy,
+            cpu_offload=CPUOffload(offload_params=True),
         )
 
-        discriminator = nn.parallel.DistributedDataParallel(
+        discriminator = FullyShardedDataParallel(
             discriminator,
-            device_ids=[args.local_rank],
-            output_device=args.local_rank,
-            broadcast_buffers=False,
+            # device_ids=[args.local_rank],
+            # output_device=args.local_rank,
+            # broadcast_buffers=False,
+            fsdp_auto_wrap_policy=default_auto_wrap_policy,
+            cpu_offload=CPUOffload(offload_params=True),
         )
+
+    g_optim = optim.Adam(
+        generator.parameters(),
+        lr=args.lr * g_reg_ratio,
+        betas=(0 ** g_reg_ratio, 0.99 ** g_reg_ratio),
+    )
+    d_optim = optim.Adam(
+        discriminator.parameters(),
+        lr=args.lr * d_reg_ratio,
+        betas=(0 ** d_reg_ratio, 0.99 ** d_reg_ratio),
+    )
 
     transform = transforms.Compose(
         [

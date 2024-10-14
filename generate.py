@@ -4,9 +4,15 @@ import torch
 from torchvision import utils
 from model import Generator
 from tqdm import tqdm
+import os
 
-
+from utils import *
 def generate(args, g_ema, device, mean_latent):
+
+    subdir = args.ckpt.replace('/', '_')
+    if not os.path.exists(os.path.join('sample', subdir)):
+        os.mkdir(os.path.join('sample', subdir))
+        gprint(f"mkdir{os.path.join('sample', subdir)}")
 
     with torch.no_grad():
         g_ema.eval()
@@ -19,10 +25,10 @@ def generate(args, g_ema, device, mean_latent):
 
             utils.save_image(
                 sample,
-                f"sample/{str(i).zfill(6)}.png",
+                f"sample/{subdir}/{str(i).zfill(6)}.png",
                 nrow=1,
                 normalize=True,
-                range=(-1, 1),
+                value_range=(-1, 1),
             )
 
 

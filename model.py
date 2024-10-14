@@ -16,6 +16,9 @@ class PixelNorm(nn.Module):
         super().__init__()
 
     def forward(self, input):
+        # out_i = in_i ** exponent(_i)
+        # out_i = 1 / sqrt(in_i)
+        # * / ** -> element-wise operation
         return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
 
 
@@ -212,6 +215,7 @@ class ModulatedConv2d(nn.Module):
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
+        # exactly the code for STYLE implementation
         self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
 
         self.demodulate = demodulate
@@ -306,6 +310,7 @@ class NoiseInjection(nn.Module):
     def __init__(self):
         super().__init__()
 
+        # scalar for noise scaling
         self.weight = nn.Parameter(torch.zeros(1))
 
     def forward(self, image, noise=None):
@@ -390,9 +395,9 @@ class ToRGB(nn.Module):
 
 class Generator(nn.Module):
     def __init__(
-        self,
-        size,
-        style_dim,
+        self, 
+        size, # img size
+        style_dim, # latent dim
         n_mlp,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
@@ -428,12 +433,15 @@ class Generator(nn.Module):
         }
 
         self.input = ConstantInput(self.channels[4])
+
         self.conv1 = StyledConv(
             self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel
         )
         self.to_rgb1 = ToRGB(self.channels[4], style_dim, upsample=False)
 
+        # 1024: 10 512:9
         self.log_size = int(math.log(size, 2))
+        # 1024: 17 512:15
         self.num_layers = (self.log_size - 2) * 2 + 1
 
         self.convs = nn.ModuleList()
@@ -451,6 +459,7 @@ class Generator(nn.Module):
         for i in range(3, self.log_size + 1):
             out_channel = self.channels[2 ** i]
 
+            # first conv layer in a style block for up sampling
             self.convs.append(
                 StyledConv(
                     in_channel,
@@ -462,6 +471,7 @@ class Generator(nn.Module):
                 )
             )
 
+            # no up-sampling
             self.convs.append(
                 StyledConv(
                     out_channel, out_channel, 3, style_dim, blur_kernel=blur_kernel
@@ -472,6 +482,7 @@ class Generator(nn.Module):
 
             in_channel = out_channel
 
+        # 1024:18 512:16
         self.n_latent = self.log_size * 2 - 2
 
     def make_noise(self):
@@ -498,6 +509,7 @@ class Generator(nn.Module):
 
     def forward(
         self,
+        # styles can be original noise or latents, depending on the input_is_latent param with shape (2*) b * latent_dim
         styles,
         return_latents=False,
         inject_index=None,
@@ -541,11 +553,13 @@ class Generator(nn.Module):
             if inject_index is None:
                 inject_index = random.randint(1, self.n_latent - 1)
 
+            # unsqueeze for duplication -- STYLE MIXING
             latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
             latent2 = styles[1].unsqueeze(1).repeat(1, self.n_latent - inject_index, 1)
 
             latent = torch.cat([latent, latent2], 1)
 
+        # just replicate the constant for input
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
 
@@ -557,6 +571,9 @@ class Generator(nn.Module):
         ):
             out = conv1(out, latent[:, i], noise=noise1)
             out = conv2(out, latent[:, i + 1], noise=noise2)
+            # as the weight modulation is another kind of styling on images, in stylegan1, 
+            # it is the image which is modulated by the STYLE vectors, but in stylegan2, it is the weight
+            # so the weight in rgb kernel shoule be modulated too, since it is a residual connection
             skip = to_rgb(out, latent[:, i + 2], skip)
 
             i += 2
