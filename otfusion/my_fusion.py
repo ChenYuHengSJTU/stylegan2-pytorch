@@ -696,16 +696,19 @@ def compute_distance(fm1, fm2):
     # fm1 : (out, 1 , in , h, w)
     # fm2 : (1, out, in, h, w)
     out_dim, in_dim, h, w = fm1.shape
-    dist1 = (fm1.unsqueeze(1) - fm2.unsqueeze(0)).pow(2).sum(dim=(-1, -2, -3))
+    dist1 = (fm1.unsqueeze(1) - fm2.unsqueeze(0)).pow(2).sum(dim=(range(2, len(fm1.shape + 1))))
     assert dist1.shape == torch.Size([out_dim, out_dim]), "dist shape dose not match"
     return dist1
 
+
+# W1, W2 can be sample latents
 def get_prior_T(W1, W2):
     pass
 
 # weight-based fusion version
 # s/preconv -> conv1 -> conv2 -> rgb/nextconv
 # gan inversion result :1) avg (16, 512) 2) guassian 
+# TODO: 1) bias 2) beta norm 3) gamma
 def fuse_stylegan2(gan1, gan2, W1, W2):
     # fuse constant input with shape(1, 512, 4, 4)
     # there are other ways to compute the distance between feature map(4*4)
@@ -720,19 +723,30 @@ def fuse_stylegan2(gan1, gan2, W1, W2):
     T = ot.emd(a, b, dist_input)
     assert T.shape == torch.Size([a, b])
     
-    in1_tilde = torch.matmul(T.t, a)
+    in1_tilde = torch.matmul(T.t, in1)
     
     # ---------------------------------------------------------------------------- #
     # fuse conv1 styleconv.conv: kernel + A (latent_dim, in_channel)
     
     conv1, conv2 = gan1.conv1.conv.weight, gan2.conv1.conv.weight
-    A1, A2 = gan1.conv1.conv.modulation, gan2.conv2.conv.modulation
+    A1, A2 = gan1.conv1.conv.modulation.weight, gan2.conv2.conv.modulation.weight
     
+    T_a = get_prior_T(W1, W2)
+    # (latent1=A1.shape[1], latent2=A2.shape[1])
+    assert T_a.shape[0] == A1.shape[1] and T_a.shape[1] == A2.shape[1]
     
+    A1_hat = torch.matmul(A1, T_a)
+    dist_A1 = compute_distance(A1_hat, A2)
     
+    a, b = get_histogram(A1.shape[0]), get_histogram(A2.shape[0])
+    T_a = ot.emd(a, b, dist_A1)
+    A1_tilde = torch.matmul(T_a.t, A1_hat)
+    
+    # TODO: the order and way that T_a, T take effect on conv to come
     # dist_conv1 = compute_distance(conv1, conv2)
     assert conv1.shape[1] == T.shape[0] and conv2.shape[1] == T.shape[1]
-    conv1_hat = torch.matmul(conv1.weight, T)
+    conv1_hat = torch.matmul(conv1, T)
+    conv1_hat = torch.matmul(conv1_hat, T_a)
     
     dist_conv1 = compute_distance(conv1_hat, conv2)
     a, b = get_histogram(conv1.shape[0]), get_histogram(conv2.shape[0])    
@@ -741,10 +755,22 @@ def fuse_stylegan2(gan1, gan2, W1, W2):
     conv1_tilde = torch.matmul(T.t, conv1_hat)
     
     # -------------------------------- fuse trgb1 -------------------------------- #
-    trgb1, trgb2 = gan1.trgb1, gan2.trgb2
+    # trgb also has a style layer
+    trgb1, trgb2 = gan1.to_rgb1.conv.weight, gan2.to_rgb2.conv.weight
+    A1, A2 = gan1.to_rgb1.conv.modulation.weight, gan2.to_rgb2.conv.modulation.weight    
+    
+    T_a = get_prior_T(W1, W2)
+    assert T_a.shape[0] == A1.shape[1] and T_a.shape[1] == A2.shape[1]
+    A1_hat = torch.matmul(A1, T_a)
+    dist_A1 = compute_distance(A1_hat, A2)
+    a, b = get_histogram(A1.shape[0], A2.shape[0])
+    T_a = ot.emd(a, b, dist_A1)
+    A1_tilde = torch.matmul(T_a.t, A1_hat)
+
     # dist_conv1 = compute_distance(conv1, conv2)
     assert trgb1.shape[1] == T.shape[0] and trgb2.shape[1] == T.shape[1]
-    trgb1_hat = torch.matmul(trgb1.weight, T)
+    trgb1_hat = torch.matmul(trgb1, T)
+    trgb1_hat = torch.matmul(trgb1_hat, T_a)    
     
     dist_trgb1 = compute_distance(trgb1_hat, trgb2)
     a, b = get_histogram(trgb1.shape[0]), get_histogram(trgb2.shape[0])  
@@ -752,6 +778,11 @@ def fuse_stylegan2(gan1, gan2, W1, W2):
     
     trgb1_tilde = torch.matmul(T.t, trgb1_hat)
     
+    # --------------------------- fuse following layers -------------------------- #
+    for conv11, conv12, conv21, conv22, trgb1, trgb2 in zip(gan1.convs[::2], gan1.convs[1::2], gan2.convs[::2], gan2.convs[1::2], gan1.to_rgbs, gan2.to_rgbs):
+        assert T.shape[0] == conv11.conv.weight.shape[1] and T.shape[1] == conv21.shpae[1]
+        
+        pass
     
     pass
 
