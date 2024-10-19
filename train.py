@@ -28,6 +28,7 @@ from distributed import (
     get_world_size,
 )
 from op import conv2d_gradfix
+print("ops loaded")
 from non_leaking import augment, AdaptiveAugment
 
 
@@ -311,7 +312,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         f"sample/{str(i).zfill(6)}.png",
                         nrow=int(args.n_sample ** 0.5),
                         normalize=True,
-                        range=(-1, 1),
+                        value_range=(-1, 1),
                     )
 
             if i % 10000 == 0:
@@ -448,6 +449,8 @@ if __name__ == "__main__":
 
     elif args.arch == 'swagan':
         from swagan import Generator, Discriminator
+
+    print("finish loading stylegan module")
 
     generator = Generator(
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier

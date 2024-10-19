@@ -131,3 +131,10 @@ dmypy.json
 wandb/
 *.lmdb/
 *.pkl
+
+
+checkpoint/*
+dataset/*
+*.pt
+sample/*
+*.pickle

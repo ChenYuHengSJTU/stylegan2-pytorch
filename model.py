@@ -208,13 +208,16 @@ class ModulatedConv2d(nn.Module):
         self.scale = 1 / math.sqrt(fan_in)
         self.padding = kernel_size // 2
 
+        # conv kernel
         self.weight = nn.Parameter(
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
+        # implement the A layer ot generate S vectors
         self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
 
         self.demodulate = demodulate
+        # todo fused
         self.fused = fused
 
     def __repr__(self):
@@ -223,7 +226,10 @@ class ModulatedConv2d(nn.Module):
             f"upsample={self.upsample}, downsample={self.downsample})"
         )
 
+    
+    # style -> latent vector W
     def forward(self, input, style):
+        # batch = B
         batch, in_channel, height, width = input.shape
 
         if not self.fused:
@@ -255,7 +261,11 @@ class ModulatedConv2d(nn.Module):
 
             return out
 
+        # S = in_channel
+        # (B, S) -> (B, 1, S, 1, 1)
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
+        # conv weight -> (1, out_channel, in_channel, k, k)
+        # element-wise multiply -> (B, out_channel, in_channel, k, k)
         weight = self.scale * self.weight * style
 
         if self.demodulate:
@@ -380,6 +390,7 @@ class ToRGB(nn.Module):
         out = self.conv(input, style)
         out = out + self.bias
 
+        # residual connection
         if skip is not None:
             skip = self.upsample(skip)
 
