@@ -5,6 +5,14 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import ot
 
+import sys
+sys.path.append('/mnt/d/SJTU/Phd/Code/stylegan2-pytorch')
+import os
+os.chdir('/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/')
+# from ..model import Generator
+import model as gan
+
+
 # for conv layer, pack bias and weights together
 # 对于x作为输入和输出的情况是不同的，体现在assertion中
 # 但是无论x是输入还是经过weight和bias packing后的卷积核处理后的输出，其多出的一个维度均为全1
@@ -392,7 +400,9 @@ def get_histogram_acts(acts, cardinality):
 def get_histogram_importance(acts, cardinality, measure):
     pass
 
-def compute_cost_weights():
+def compute_cost_weights(w1, w2):
+    assert len(w1.shape) == len(w2.shape)
+    return (w1.unsqueeze(1) - w2.unsqueeze(0)).pow(2).sum(list(range(2, len(w1.shape) + 1)))
     pass
 
 # (B, out + 1)
@@ -695,21 +705,33 @@ def compute_distance(fm1, fm2):
     # fm2 = fm2.permute(1, 0, 2, 3)
     # fm1 : (out, 1 , in , h, w)
     # fm2 : (1, out, in, h, w)
-    out_dim, in_dim, h, w = fm1.shape
-    dist1 = (fm1.unsqueeze(1) - fm2.unsqueeze(0)).pow(2).sum(dim=(range(2, len(fm1.shape + 1))))
+    out_dim, in_dim, = fm1.shape[:2]
+    dist1 = (fm1.unsqueeze(1) - fm2.unsqueeze(0)).pow(2)
+    if len(fm1.shape) == 4:
+        dist1 = dist1.sum(dim=(2,3,4))
+    elif len(fm1.shape) == 2:
+        dist1 = dist1.sum(dim=(2))
+    # dist1 = (fm1.unsqueeze(1) - fm2.unsqueeze(0)).pow(2).sum(dim=list(range(2, len(fm1.shape + 1))))
     assert dist1.shape == torch.Size([out_dim, out_dim]), "dist shape dose not match"
     return dist1
 
 
 # W1, W2 can be sample latents
 def get_prior_T(W1, W2):
+    assert W1 is not None and W2 is not None
+    W1, W2 = W1.squeeze(), W2.squeeze()
+    # ot.gaussian.empirical_bures_wasserstein_mapping -> reg=1e-2, bais=False
+    assert W1.shape[1] == W2.shape[1]
+    T, b = ot.gaussian.empirical_bures_wasserstein_mapping(W1, W2, bias=False, reg=1e-2)
+    # T, b = ot.gaussian.empirical_gaussian_gromov_wasserstein_mapping(W1, W2,)
+    return T
     pass
 
 # weight-based fusion version
 # s/preconv -> conv1 -> conv2 -> rgb/nextconv
-# gan inversion result :1) avg (16, 512) 2) guassian 
+# gan inversion result :1) avg (16, 512) 2) guassian 3) domain adaptation
 # TODO: 1) bias 2) beta norm 3) gamma
-def fuse_stylegan2(gan1, gan2, W1, W2):
+def fuse_stylegan2_detailed(gan1, gan2, W1, W2):
     # fuse constant input with shape(1, 512, 4, 4)
     # there are other ways to compute the distance between feature map(4*4)
     
@@ -779,14 +801,153 @@ def fuse_stylegan2(gan1, gan2, W1, W2):
     trgb1_tilde = torch.matmul(T.t, trgb1_hat)
     
     # --------------------------- fuse following layers -------------------------- #
+    # a incoming T, compute T_a according to A
+    # traverse the styleconv list
     for conv11, conv12, conv21, conv22, trgb1, trgb2 in zip(gan1.convs[::2], gan1.convs[1::2], gan2.convs[::2], gan2.convs[1::2], gan1.to_rgbs, gan2.to_rgbs):
+    # ----------------------- conv1 in the styleconv block ----------------------- #
         assert T.shape[0] == conv11.conv.weight.shape[1] and T.shape[1] == conv21.shpae[1]
+        
+        A1, A2 = conv11.conv.modulation.weight, conv21.conv.modulation.weight
+        dist_A1 = compute_distance(A1, A2)
+        T_a = get_prior_T(W1, W2)
+        
+        A1_hat = torch.matmul(A1_hat, T_a)
+        a, b = get_histogram(A1_hat.shape[0], A2.shape[0])
+        T_a = ot.emd(a, b, dist_A1)
+        A1_tilde = torch.matmul(T_a, A1_hat)
+        
+        assert T_a.shape[0] == conv11.shape[1] and T_a.shape[1] == conv21.shape[1]
+        
+        conv11_w, conv21_w = conv11.conv.weight, conv21.conv.weight
+        conv11_w_hat = torch.matmul(conv11_w, T)
+        conv11_w_hat = torch.matmul(conv11_w_hat, T_a)
+        
+        dist_1 = compute_distance(conv11_w, conv21_w)
+        a, b = get_histogram(conv11_w.shape[0]), get_histogram(conv21_w.shape[0])
+        T = ot.emd(a, b, dist_1)
+        
+    # ------------------------ conv2 in a styleconv block ------------------------ #
+        conv12_w, conv22_w = conv12.conv.weight, conv22.conv.weight
+        assert T.shape[0] == conv12_w.shape[1] and T.shape[1] == conv22_w.shape[1]
+        
+        A1, A2 = conv12.conv.modulation.weight, conv22.conv.modulation.weight
+        
         
         pass
     
     pass
 
+
+# put the same fusion ops in a function
+# 1) T_a may need to be computed according to the latents provided
+# 2) some flags which show the difference between convs such as upsample/bias etc can be added to modify the fusing behavior
+def fuse_conv(conv1, conv2, T_a=None, W1=None, W2=None, T=None, layer_name=None):
+    print('# ---------------------------------------------------------------------------- #')
+    print(f"fusing {layer_name}, conv1 {conv1.shape}, conv2 {conv2.shape}")
+    if len(conv1.shape) == 5:
+        assert len(conv2.shape) == 5
+        conv1 = conv1.squeeze(0)
+        conv2 = conv2.squeeze(0)
+    in_ch, out_ch = conv1.shape[:2]
+    if T_a is not None:
+        print(f'T_a {T_a.shape}')
+        assert T_a.shape[0] == conv1.shape[1] and T_a.shape[1] == conv2.shape[1]
+        conv1_hat = torch.matmul(conv1.reshape(in_ch, out_ch, -1).permute(2, 0, 1), T_a).permute(1, 2, 0)
+    if T is not None:
+        print(f'T {T.shape}')
+        assert T.shape[0] == conv1.shape[1] and T.shape[1] == conv2.shape[1]
+        conv1_hat = torch.matmul(conv1.reshape(in_ch, out_ch, -1).permute(2, 0, 1), T).permute(1, 2, 0)
+    else:
+        conv1_hat = conv1
+    if len(conv1.shape) == 4:
+        h, w = conv1.shape[2:]
+        conv1_hat = conv1_hat.reshape(in_ch, out_ch, h, w)
+
+    # assert (W1 is None and W2 is None) or (W1 is not None and W2 is not None)
+    dist = compute_distance(conv1_hat, conv2)
+    print(f'dist {dist.shape}')
+    # if W1 is not None:
+    #     assert W2 is not None
+
+    print(f'conv1_tilde {conv1.shape}')
+    a, b = get_histogram(conv1_hat.shape[0]), get_histogram(conv2.shape[0])
+    print(f'a {a.shape}, b {b.shape}')
+    T = ot.emd(a, b, dist)
+    print(f'T {type(T)} {T.shape}')
+    if len(conv1.shape) == 4:
+        out_ch, in_ch, h, w = conv1_hat.shape
+        conv1_tilde = torch.bmm(T.transpose(0,1).unsqueeze(0).repeat(h * w, 1, 1), conv1.reshape(out_ch, in_ch, -1).permute(2, 0, 1)).permute(1, 2, 0).reshape(out_ch, in_ch, h, w)
+    elif len(conv1.shape) == 2:
+        out_ch, in_ch = conv1_hat.shape
+        conv1_tilde = torch.matmul(T.transpose(0, 1), conv1)
+    print(f"conv1_tilde {conv1_tilde.shape}")
+    print('# ---------------------------------------------------------------------------- #\n')
+    return T, conv1_tilde
+    # return T, torch.matmul(T.transpose(0,1), conv1.reshape())
+    pass
+
+# TODO: add fusion flags
+def fuse_stylegan2(gan1, gan2, W1, W2):
+    # -------------- constant input (1, 512, 4, 4) -> (512, 1, 4, 4) ------------- #
+    in1, in2 = gan1.input.input.permute(1, 0, 2, 3), gan2.input.input.permute(1, 0, 2, 3)
+    T, in1_tilde = fuse_conv(in1, in2, layer_name='Constant Input')
+    
+    # ------------------------------- conv1 to_rgb1 ------------------------------ #
+    # the conv weight in stylegan2-pytorch is (1, out, in ,h, w)
+    conv1, conv2 = gan1.conv1, gan2.conv1
+    to_rgb1, to_rgb2 = gan1.to_rgb1, gan2.to_rgb1
+
+    T_a = get_prior_T(W1[:, 0, :], W2[:, 0, :])
+    print(T_a)
+    T_a, A_tilde = fuse_conv(conv1.conv.modulation.weight, conv2.conv.modulation.weight, T_a=T_a, layer_name='conv0.A')
+    T, conv1_tilde = fuse_conv(conv1.conv.weight, conv2.conv.weight, T_a=T_a, T=T, layer_name='conv0.conv')
+
+    T_a = get_prior_T(W1[:, 1, :], W2[:, 1, :])
+    T_a, A_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name='to_rgb0.A')
+    _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name='to_rgb0.conv')
+    
+    # ----------------- follow convs and to_rgbs in a modulelist ----------------- #
+    layer_idx = 0
+    print(len(gan1.convs), len(gan1.to_rgbs), len(gan2.convs), len(gan2.to_rgbs))
+    # print(len(zip(gan1.convs[::2], gan1.convs[1::2], gan2.convs[::2], gan2.convs[1:2], gan1.to_rgbs, gan2.to_rgbs)))
+    for conv11, conv12, conv21, conv22, to_rgb1, to_rgb2 in zip(gan1.convs[::2], gan1.convs[1::2], gan2.convs[::2], gan2.convs[1::2], gan1.to_rgbs, gan2.to_rgbs):
+        idx = layer_idx + 1
+        T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
+        T_a, A_tilde = fuse_conv(conv11.conv.modulation.weight, conv21.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv1.A')
+        T, conv11_tilde = fuse_conv(conv11.conv.weight, conv21.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv1.conv')
+
+        idx += 1
+        T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
+        T_a, A_tilde = fuse_conv(conv12.conv.modulation.weight, conv22.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv2.A')
+        T, conv12_tilde = fuse_conv(conv12.conv.weight, conv22.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv2.conv')
+
+        idx += 1
+        T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
+        T_a, A_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name=f'to_rgb{layer_idx+1}.A')
+        _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name=f'to_rgb{layer_idx+1}.conv')
+        # pass
+
+        layer_idx += 1
+    pass
+
+def fuse_stylegan2_main():
+    Gans = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/779999.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/799999_1.pt']
+    args = torch.load(Gans[0])['args']
+    sz, style_dim, n_mlp = args.size, args.latent, args.n_mlp
+    gan1, gan2 = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp), gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
+    Ws = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W1_ge.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W1_ge.pt']
+    W1, W2 = torch.load(Ws[0]), torch.load(Ws[1])
+    gan1.load_state_dict(torch.load(Gans[0])['g_ema'])
+    gan2.load_state_dict(torch.load(Gans[1])['g_ema'])
+    print(gan1.convs, gan2.convs)
+    fuse_stylegan2(gan1, gan2, W1, W2)
+
+
 if __name__ == "__main__":
+    
+    fuse_stylegan2_main()
+    exit(0)    
+    
     transforms = transforms.Compose([transforms.RandomHorizontalFlip(),
                                               transforms.CenterCrop(148),
                                               transforms.Resize((64, 64)),
