@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+import torchvision as tv
 from tqdm import tqdm
 import ot
 
@@ -11,7 +12,7 @@ import os
 os.chdir('/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/')
 # from ..model import Generator
 import model as gan
-
+import train
 
 # for conv layer, pack bias and weights together
 # 对于x作为输入和输出的情况是不同的，体现在assertion中
@@ -719,11 +720,15 @@ def compute_distance(fm1, fm2):
 # W1, W2 can be sample latents
 def get_prior_T(W1, W2):
     assert W1 is not None and W2 is not None
+    print('# ---------------------------------------------------------------------------- #')
     W1, W2 = W1.squeeze(), W2.squeeze()
+    print('W1 shape: ', W1.shape, ' W2 shape: ', W2.shape)
     # ot.gaussian.empirical_bures_wasserstein_mapping -> reg=1e-2, bais=False
     assert W1.shape[1] == W2.shape[1]
     T, b = ot.gaussian.empirical_bures_wasserstein_mapping(W1, W2, bias=False, reg=1e-2)
     # T, b = ot.gaussian.empirical_gaussian_gromov_wasserstein_mapping(W1, W2,)
+    print(T)
+    print('# ---------------------------------------------------------------------------- #\n')
     return T
     pass
 
@@ -848,6 +853,8 @@ def fuse_conv(conv1, conv2, T_a=None, W1=None, W2=None, T=None, layer_name=None)
         assert len(conv2.shape) == 5
         conv1 = conv1.squeeze(0)
         conv2 = conv2.squeeze(0)
+    if len(conv1.shape) == 1:
+        return
     in_ch, out_ch = conv1.shape[:2]
     if T_a is not None:
         print(f'T_a {T_a.shape}')
@@ -881,31 +888,44 @@ def fuse_conv(conv1, conv2, T_a=None, W1=None, W2=None, T=None, layer_name=None)
         out_ch, in_ch = conv1_hat.shape
         conv1_tilde = torch.matmul(T.transpose(0, 1), conv1)
     print(f"conv1_tilde {conv1_tilde.shape}")
+    print(T)
     print('# ---------------------------------------------------------------------------- #\n')
     return T, conv1_tilde
     # return T, torch.matmul(T.transpose(0,1), conv1.reshape())
     pass
 
+def get_fused_weight(w1, w2, w):
+    assert w1.shape == w2.shape and w1.shape == w.shape, f"{w1.shape}, {w2.shape}, {w.shape}"
+    return ((w1 + w2) / 2).contiguous()
+    pass
 # TODO: add fusion flags
-def fuse_stylegan2(gan1, gan2, W1, W2):
+def fuse_stylegan2(gan1, gan2, W1, W2, fused_gan):
     # -------------- constant input (1, 512, 4, 4) -> (512, 1, 4, 4) ------------- #
     in1, in2 = gan1.input.input.permute(1, 0, 2, 3), gan2.input.input.permute(1, 0, 2, 3)
     T, in1_tilde = fuse_conv(in1, in2, layer_name='Constant Input')
-    
+    fused_gan.input.input.data = get_fused_weight(in1_tilde.permute(1, 0, 2, 3), in2.permute(1, 0, 2, 3), fused_gan.input.input.data)
+
     # ------------------------------- conv1 to_rgb1 ------------------------------ #
     # the conv weight in stylegan2-pytorch is (1, out, in ,h, w)
     conv1, conv2 = gan1.conv1, gan2.conv1
     to_rgb1, to_rgb2 = gan1.to_rgb1, gan2.to_rgb1
 
     T_a = get_prior_T(W1[:, 0, :], W2[:, 0, :])
-    print(T_a)
+    # print(T_a)
     T_a, A_tilde = fuse_conv(conv1.conv.modulation.weight, conv2.conv.modulation.weight, T_a=T_a, layer_name='conv0.A')
     T, conv1_tilde = fuse_conv(conv1.conv.weight, conv2.conv.weight, T_a=T_a, T=T, layer_name='conv0.conv')
+    fused_gan.conv1.conv.modulation.weight.data = get_fused_weight(A_tilde, conv2.conv.modulation.weight, fused_gan.conv1.conv.modulation.weight.data)
+    fused_gan.conv1.conv.weight.data = get_fused_weight(conv1_tilde.unsqueeze(0), conv2.conv.weight, fused_gan.conv1.conv.weight.data)
+    # A0_bias_tilde = fuse_conv(conv1.conv.modulation.bias, conv2.conv.modulation.bias, T_a=T_a, layer_name='conv0.A.bias')
+    fused_gan.conv1.conv.modulation.bias.data = get_fused_weight(torch.matmul(T_a, conv1.conv.modulation.bias), conv2.conv.modulation.bias, fused_gan.conv1.conv.modulation.bias)
 
     T_a = get_prior_T(W1[:, 1, :], W2[:, 1, :])
     T_a, A_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name='to_rgb0.A')
     _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name='to_rgb0.conv')
-    
+    fused_gan.to_rgb1.conv.weight.data = get_fused_weight(to_rgb1_tilde.unsqueeze(0), to_rgb2.conv.weight, fused_gan.to_rgb1.conv.weight)
+    fused_gan.to_rgb1.conv.modulation.weight.data = get_fused_weight(A_tilde, to_rgb2.conv.modulation.weight, fused_gan.to_rgb1.conv.modulation.weight)
+    fused_gan.to_rgb1.conv.modulation.bias.data = get_fused_weight(torch.matmul(T_a, to_rgb1.conv.modulation.bias), to_rgb2.conv.modulation.bias, fused_gan.to_rgb1.conv.modulation.bias)
+
     # ----------------- follow convs and to_rgbs in a modulelist ----------------- #
     layer_idx = 0
     print(len(gan1.convs), len(gan1.to_rgbs), len(gan2.convs), len(gan2.to_rgbs))
@@ -913,34 +933,81 @@ def fuse_stylegan2(gan1, gan2, W1, W2):
     for conv11, conv12, conv21, conv22, to_rgb1, to_rgb2 in zip(gan1.convs[::2], gan1.convs[1::2], gan2.convs[::2], gan2.convs[1::2], gan1.to_rgbs, gan2.to_rgbs):
         idx = layer_idx + 1
         T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
-        T_a, A_tilde = fuse_conv(conv11.conv.modulation.weight, conv21.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv1.A')
+        T_a, A1_tilde = fuse_conv(conv11.conv.modulation.weight, conv21.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv1.A')
         T, conv11_tilde = fuse_conv(conv11.conv.weight, conv21.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv1.conv')
+        bias1 = torch.matmul(T_a, conv11.conv.modulation.bias)
 
         idx += 1
         T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
-        T_a, A_tilde = fuse_conv(conv12.conv.modulation.weight, conv22.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv2.A')
+        T_a, A2_tilde = fuse_conv(conv12.conv.modulation.weight, conv22.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv2.A')
         T, conv12_tilde = fuse_conv(conv12.conv.weight, conv22.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv2.conv')
+        bias2 = torch.matmul(T_a, conv12.conv.modulation.bias)
 
         idx += 1
         T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
-        T_a, A_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name=f'to_rgb{layer_idx+1}.A')
+        T_a, A3_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name=f'to_rgb{layer_idx+1}.A')
         _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name=f'to_rgb{layer_idx+1}.conv')
-        # pass
+        bias3 = torch.matmul(T_a, to_rgb1.conv.modulation.bias)
+
+        fused_gan.convs[2 * layer_idx].conv.weight.data = get_fused_weight(conv11_tilde.unsqueeze(0), conv21.conv.weight, fused_gan.convs[2 * layer_idx].conv.weight.data)
+        fused_gan.convs[2 * layer_idx+1].conv.weight.data = get_fused_weight(conv12_tilde.unsqueeze(0), conv22.conv.weight, fused_gan.convs[2 * layer_idx+1].conv.weight.data)
+        fused_gan.to_rgbs[layer_idx].conv.weight.data = get_fused_weight(to_rgb1_tilde.unsqueeze(0), to_rgb2.conv.weight, fused_gan.to_rgbs[layer_idx].conv.weight.data)
+        fused_gan.convs[2 * layer_idx].conv.modulation.weight.data = get_fused_weight(A1_tilde, conv21.conv.modulation.weight, fused_gan.convs[2 * layer_idx].conv.modulation.weight.data)
+        fused_gan.convs[2 * layer_idx + 1].conv.modulation.weight.data = get_fused_weight(A2_tilde, conv22.conv.modulation.weight, fused_gan.convs[2 * layer_idx+1].conv.modulation.weight.data)
+        fused_gan.to_rgbs[layer_idx].conv.modulation.weight.data = get_fused_weight(A3_tilde, to_rgb1.conv.modulation.weight, fused_gan.to_rgbs[layer_idx].conv.modulation.weight.data)
+        fused_gan.convs[2 * layer_idx].conv.modulation.bias.data = get_fused_weight(bias1, conv21.conv.modulation.bias, fused_gan.convs[2 * layer_idx].conv.modulation.bias.data)
+        fused_gan.convs[2 * layer_idx + 1].conv.modulation.bias.data = get_fused_weight(bias2, conv22.conv.modulation.bias, fused_gan.convs[2 * layer_idx+1].conv.modulation.bias.data)
+        fused_gan.to_rgbs[layer_idx].conv.modulation.bias.data = get_fused_weight(bias3, to_rgb1.conv.modulation.bias, fused_gan.to_rgbs[layer_idx].conv.modulation.bias.data)
+
 
         layer_idx += 1
     pass
+
+def tensor2im(t):
+    t = t.permute(0, 2, 3, 1).detach().cpu()
+    t = t * 0.5 + 0.5
+    t[t > 1] = 1
+    t[t < 0] = 0
+    return t * 255
 
 def fuse_stylegan2_main():
     Gans = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/779999.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/799999_1.pt']
     args = torch.load(Gans[0])['args']
     sz, style_dim, n_mlp = args.size, args.latent, args.n_mlp
     gan1, gan2 = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp), gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
-    Ws = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W1_ge.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W1_ge.pt']
+    Ws = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W1_ge.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/dataset/W2_ge.pt']
     W1, W2 = torch.load(Ws[0]), torch.load(Ws[1])
     gan1.load_state_dict(torch.load(Gans[0])['g_ema'])
     gan2.load_state_dict(torch.load(Gans[1])['g_ema'])
-    print(gan1.convs, gan2.convs)
-    fuse_stylegan2(gan1, gan2, W1, W2)
+    bs = 4
+    noise = train.mixing_noise(bs, 512, 0.9, 'cuda')
+
+
+    # print(img1.shape, img2.shape)
+    # imgs = tv.utils.make_grid([*img1, *img2], nrow=2)
+
+    # exit(0)
+    # print(gan1.convs, gan2.convs)
+    fused_gan = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
+    fused_gan.cuda()
+    img3, _ = fused_gan(noise)
+    # print([k for k, v in fused_gan.named_parameters()])
+    # exit(0)
+    fused_gan.cpu()
+    fuse_stylegan2(gan1, gan2, W1, W2, fused_gan)
+    gan1.cuda()
+    gan2.cuda()
+    img1, _ = gan1(noise)
+    img2, _ = gan2(noise)
+    gan1.cpu()
+    gan2.cpu()
+    fused_gan.cuda()
+    img4, _ = fused_gan(noise)
+    fused_gan.cpu()
+    imgs = tv.utils.make_grid(torch.concat((img1, img2, img3, img4), dim=0), nrow=bs)
+    tv.utils.save_image(imgs, normalize=True, value_range=(-1, 1), fp='sample.png')
+    # rand_latents = torch.rand(10,512)
+
 
 
 if __name__ == "__main__":
