@@ -718,6 +718,9 @@ def compute_distance(fm1, fm2):
 
 
 # W1, W2 can be sample latents
+# 1) sample-based empirical
+# 2) first calculate the gaussain, then use the mean and cov
+# 3) domain adaptation
 def get_prior_T(W1, W2):
     assert W1 is not None and W2 is not None
     print('# ---------------------------------------------------------------------------- #')
@@ -872,7 +875,7 @@ def fuse_conv(conv1, conv2, T_a=None, W1=None, W2=None, T=None, layer_name=None)
 
     # assert (W1 is None and W2 is None) or (W1 is not None and W2 is not None)
     dist = compute_distance(conv1_hat, conv2)
-    print(f'dist {dist.shape}')
+    print(f'dist {dist.shape}\n{dist}')
     # if W1 is not None:
     #     assert W2 is not None
 
@@ -918,13 +921,16 @@ def fuse_stylegan2(gan1, gan2, W1, W2, fused_gan):
     fused_gan.conv1.conv.weight.data = get_fused_weight(conv1_tilde.unsqueeze(0), conv2.conv.weight, fused_gan.conv1.conv.weight.data)
     # A0_bias_tilde = fuse_conv(conv1.conv.modulation.bias, conv2.conv.modulation.bias, T_a=T_a, layer_name='conv0.A.bias')
     fused_gan.conv1.conv.modulation.bias.data = get_fused_weight(torch.matmul(T_a, conv1.conv.modulation.bias), conv2.conv.modulation.bias, fused_gan.conv1.conv.modulation.bias)
+    fused_gan.conv1.activate.bias.data = get_fused_weight(torch.matmul(T, conv1.activate.bias), conv2.activate.bias, fused_gan.conv1.activate.bias)
 
     T_a = get_prior_T(W1[:, 1, :], W2[:, 1, :])
     T_a, A_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name='to_rgb0.A')
-    _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name='to_rgb0.conv')
+    T_rgb, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name='to_rgb0.conv')
     fused_gan.to_rgb1.conv.weight.data = get_fused_weight(to_rgb1_tilde.unsqueeze(0), to_rgb2.conv.weight, fused_gan.to_rgb1.conv.weight)
     fused_gan.to_rgb1.conv.modulation.weight.data = get_fused_weight(A_tilde, to_rgb2.conv.modulation.weight, fused_gan.to_rgb1.conv.modulation.weight)
     fused_gan.to_rgb1.conv.modulation.bias.data = get_fused_weight(torch.matmul(T_a, to_rgb1.conv.modulation.bias), to_rgb2.conv.modulation.bias, fused_gan.to_rgb1.conv.modulation.bias)
+    # always [1,3,1,1]
+    fused_gan.to_rgb1.bias.data = get_fused_weight(torch.matmul(T_rgb, to_rgb1.bias.transpose(0, 1).reshape(3, 1)).reshape(3, 1, 1, 1).transpose(0,1), to_rgb2.bias, fused_gan.to_rgb1.bias)
 
     # ----------------- follow convs and to_rgbs in a modulelist ----------------- #
     layer_idx = 0
@@ -936,18 +942,21 @@ def fuse_stylegan2(gan1, gan2, W1, W2, fused_gan):
         T_a, A1_tilde = fuse_conv(conv11.conv.modulation.weight, conv21.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv1.A')
         T, conv11_tilde = fuse_conv(conv11.conv.weight, conv21.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv1.conv')
         bias1 = torch.matmul(T_a, conv11.conv.modulation.bias)
+        act_bias1 = torch.matmul(T, conv11.activate.bias)
 
         idx += 1
         T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
         T_a, A2_tilde = fuse_conv(conv12.conv.modulation.weight, conv22.conv.modulation.weight, T_a=T_a, layer_name=f'conv{layer_idx+1}.conv2.A')
         T, conv12_tilde = fuse_conv(conv12.conv.weight, conv22.conv.weight, T_a=T_a, T=T, layer_name=f'conv{layer_idx+1}.conv2.conv')
         bias2 = torch.matmul(T_a, conv12.conv.modulation.bias)
+        act_bias2 = torch.matmul(T, conv12.activate.bias)
 
         idx += 1
         T_a = get_prior_T(W1[:, idx, :], W2[:, idx, :])
         T_a, A3_tilde = fuse_conv(to_rgb1.conv.modulation.weight, to_rgb2.conv.modulation.weight, T_a=T_a, layer_name=f'to_rgb{layer_idx+1}.A')
-        _, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name=f'to_rgb{layer_idx+1}.conv')
+        T_rgb, to_rgb1_tilde = fuse_conv(to_rgb1.conv.weight, to_rgb2.conv.weight, T_a=T_a, T=T, layer_name=f'to_rgb{layer_idx+1}.conv')
         bias3 = torch.matmul(T_a, to_rgb1.conv.modulation.bias)
+        trgb_bias = torch.matmul(T_rgb, to_rgb1.bias.transpose(0, 1).reshape(3, 1)).reshape(3, 1, 1, 1).transpose(0, 1)
 
         fused_gan.convs[2 * layer_idx].conv.weight.data = get_fused_weight(conv11_tilde.unsqueeze(0), conv21.conv.weight, fused_gan.convs[2 * layer_idx].conv.weight.data)
         fused_gan.convs[2 * layer_idx+1].conv.weight.data = get_fused_weight(conv12_tilde.unsqueeze(0), conv22.conv.weight, fused_gan.convs[2 * layer_idx+1].conv.weight.data)
@@ -959,10 +968,14 @@ def fuse_stylegan2(gan1, gan2, W1, W2, fused_gan):
         fused_gan.convs[2 * layer_idx + 1].conv.modulation.bias.data = get_fused_weight(bias2, conv22.conv.modulation.bias, fused_gan.convs[2 * layer_idx+1].conv.modulation.bias.data)
         fused_gan.to_rgbs[layer_idx].conv.modulation.bias.data = get_fused_weight(bias3, to_rgb1.conv.modulation.bias, fused_gan.to_rgbs[layer_idx].conv.modulation.bias.data)
 
+        fused_gan.convs[2 * layer_idx].activate.bias.data = get_fused_weight(act_bias1, conv21.activate.bias, fused_gan.convs[2 * layer_idx].activate.bias.data)
+        fused_gan.convs[2 * layer_idx + 1].activate.bias.data = get_fused_weight(act_bias2, conv22.activate.bias, fused_gan.convs[2 * layer_idx + 1].activate.bias.data)
+        fused_gan.to_rgbs[layer_idx].bias.data = get_fused_weight(trgb_bias, to_rgb2.bias, fused_gan.to_rgbs[layer_idx].bias.data)
 
         layer_idx += 1
     pass
 
+# check why this function fails
 def tensor2im(t):
     t = t.permute(0, 2, 3, 1).detach().cpu()
     t = t * 0.5 + 0.5
@@ -970,8 +983,26 @@ def tensor2im(t):
     t[t < 0] = 0
     return t * 255
 
+def vanilla_fusion(gan1, gan2):
+    fused_dict = dict()
+    for (name1, param1), (name2, param2) in zip(gan1.named_parameters(), gan2.named_parameters()):
+        # print(name1, name2)
+        # continue
+        assert name1 == name2
+        print(name1, name2)
+        fused_dict[name1] = (param1 + param2) / 2
+
+    for (name1, param1), (name2, param2) in zip(gan1.named_buffers(), gan2.named_buffers()):
+        # print(name1, name2)
+        # continue
+        assert name1 == name2
+        print(name1, name2)
+        fused_dict[name1] = (param1 + param2) / 2
+
+    return fused_dict
+
 def fuse_stylegan2_main():
-    Gans = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/779999.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/799999_1.pt']
+    Gans = ['/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/779999.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/799999_230.pt', '/mnt/d/SJTU/Phd/Code/stylegan2-pytorch/checkpoint/799999_225.pt']
     args = torch.load(Gans[0])['args']
     sz, style_dim, n_mlp = args.size, args.latent, args.n_mlp
     gan1, gan2 = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp), gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
@@ -979,8 +1010,8 @@ def fuse_stylegan2_main():
     W1, W2 = torch.load(Ws[0]), torch.load(Ws[1])
     gan1.load_state_dict(torch.load(Gans[0])['g_ema'])
     gan2.load_state_dict(torch.load(Gans[1])['g_ema'])
-    bs = 4
-    noise = train.mixing_noise(bs, 512, 0.9, 'cuda')
+    bs = 2
+    noise = train.mixing_noise(bs, 512, 1, 'cuda')
 
 
     # print(img1.shape, img2.shape)
@@ -989,10 +1020,18 @@ def fuse_stylegan2_main():
     # exit(0)
     # print(gan1.convs, gan2.convs)
     fused_gan = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
+
+
+
     fused_gan.cuda()
     img3, _ = fused_gan(noise)
+    fused_gan.cpu()
     # print([k for k, v in fused_gan.named_parameters()])
     # exit(0)
+    fused_gan.load_state_dict(vanilla_fusion(gan1, gan2))
+    fused_gan.cuda()
+    img5, _ = fused_gan(noise)
+
     fused_gan.cpu()
     fuse_stylegan2(gan1, gan2, W1, W2, fused_gan)
     gan1.cuda()
@@ -1004,10 +1043,18 @@ def fuse_stylegan2_main():
     fused_gan.cuda()
     img4, _ = fused_gan(noise)
     fused_gan.cpu()
-    imgs = tv.utils.make_grid(torch.concat((img1, img2, img3, img4), dim=0), nrow=bs)
+
+    gan3 = gan.Generator(size=sz, style_dim=style_dim, n_mlp=n_mlp)
+    gan3.load_state_dict(torch.load(Gans[2])['g_ema'])
+    gan3.cuda()
+    img6, _ = gan3(noise)
+    gan3.cpu()
+
+    imgs = tv.utils.make_grid(torch.concat((img1, img2, img3, img4, img5, img6), dim=0), nrow=bs)
     tv.utils.save_image(imgs, normalize=True, value_range=(-1, 1), fp='sample.png')
     # rand_latents = torch.rand(10,512)
 
+    torch.save(fused_gan.state_dict(), 'fused_gan.pt')
 
 
 if __name__ == "__main__":
